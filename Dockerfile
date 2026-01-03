@@ -46,14 +46,14 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/start.sh ./start.sh
 
 # Create data directory and set permissions
-RUN mkdir -p /app/data && chmod +x /app/start.sh && chown -R nextjs:nodejs /app
+RUN mkdir -p /app/data && chown -R nextjs:nodejs /app
 
 USER nextjs
 
 EXPOSE 3000
 
-# Run start script
-CMD ["/bin/sh", "/app/start.sh"]
+# Initialize database and start server
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["mkdir -p /app/data && npx prisma db push --accept-data-loss --skip-generate && node server.js"]
