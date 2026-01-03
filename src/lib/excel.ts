@@ -1,23 +1,5 @@
 import * as XLSX from "xlsx";
 
-export interface ExcelExpenseRow {
-  연번: number;
-  집행완료일: string | number;
-  집행목적: string;
-  증빙유형: string;
-  품목: string;
-  거래처명?: string;
-  입금은행?: string;
-  예금주명?: string;
-  입금계좌번호?: string;
-  집행금액: number;
-  보조세목?: string;
-  재원?: string;
-  공급가액?: number;
-  부가세?: number;
-  잔액?: number;
-}
-
 export interface ParsedExpense {
   serialNumber: number;
   executionDate: Date;
@@ -36,7 +18,9 @@ export interface ParsedExpense {
   balance: number | null;
 }
 
-function parseExcelDate(value: string | number): Date {
+function parseExcelDate(value: string | number | undefined | null): Date {
+  if (!value) return new Date();
+  
   if (typeof value === "number") {
     // Excel serial date number
     const utcDays = Math.floor(value - 25569);
@@ -46,71 +30,137 @@ function parseExcelDate(value: string | number): Date {
   
   // String date format: "2025.02.10" or "2025-02-10" or "2025/02/10"
   const dateStr = String(value).replace(/[.\/]/g, "-");
-  return new Date(dateStr);
+  const parsed = new Date(dateStr);
+  
+  // 유효한 날짜인지 확인
+  if (isNaN(parsed.getTime())) {
+    return new Date();
+  }
+  
+  return parsed;
+}
+
+function safeNumber(value: unknown): number {
+  if (value === null || value === undefined || value === "") return 0;
+  const num = Number(value);
+  return isNaN(num) ? 0 : num;
+}
+
+function safeString(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
 }
 
 export function parseExcelFile(buffer: Buffer): ParsedExpense[] {
   const workbook = XLSX.read(buffer, { type: "buffer" });
+  
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    throw new Error("No sheets found in workbook");
+  }
+  
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
   
+  if (!worksheet) {
+    throw new Error("Worksheet is empty");
+  }
+  
   // 엑셀 데이터를 배열로 변환 (헤더 포함)
-  const rawData = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1 });
+  const rawData = XLSX.utils.sheet_to_json<(string | number | undefined)[]>(worksheet, { header: 1 });
+  
+  if (!rawData || rawData.length === 0) {
+    throw new Error("No data found in worksheet");
+  }
+  
+  console.log("Raw data rows:", rawData.length);
   
   // 헤더 행 찾기 (연번이 포함된 행)
-  let headerRowIndex = 0;
+  let headerRowIndex = -1;
   for (let i = 0; i < Math.min(rawData.length, 10); i++) {
     const row = rawData[i];
-    if (row && row.includes("연번")) {
-      headerRowIndex = i;
-      break;
+    if (row && Array.isArray(row)) {
+      const hasSerialNumber = row.some(cell => 
+        cell !== undefined && String(cell).trim() === "연번"
+      );
+      if (hasSerialNumber) {
+        headerRowIndex = i;
+        break;
+      }
     }
   }
   
+  if (headerRowIndex === -1) {
+    console.log("Header row not found, trying first row");
+    headerRowIndex = 0;
+  }
+  
+  console.log("Header row index:", headerRowIndex);
+  
   // 헤더 인덱스 매핑
-  const headerRow = rawData[headerRowIndex] as string[];
+  const headerRow = rawData[headerRowIndex] as (string | number | undefined)[];
   const colIndex: Record<string, number> = {};
-  headerRow.forEach((col, idx) => {
-    if (col) colIndex[col.trim()] = idx;
-  });
+  
+  if (headerRow) {
+    headerRow.forEach((col, idx) => {
+      if (col !== undefined && col !== null) {
+        const colName = String(col).trim();
+        if (colName) {
+          colIndex[colName] = idx;
+        }
+      }
+    });
+  }
+  
+  console.log("Column index:", colIndex);
   
   // 데이터 행 파싱 (헤더 다음 행부터)
   const expenses: ParsedExpense[] = [];
   
   for (let i = headerRowIndex + 1; i < rawData.length; i++) {
     const row = rawData[i] as (string | number | undefined)[];
-    if (!row) continue;
+    if (!row || !Array.isArray(row)) continue;
     
-    const serialNumber = row[colIndex["연번"]];
-    const executionDate = row[colIndex["집행완료일"]];
-    const purpose = row[colIndex["집행목적"]];
+    // 연번 컬럼 인덱스 찾기
+    const serialNumIdx = colIndex["연번"] ?? 1;
+    const serialNumber = row[serialNumIdx];
     
-    // 연번, 집행완료일, 집행목적이 있어야 유효한 행
-    if (!serialNumber || !executionDate || !purpose) continue;
+    // 연번이 숫자가 아니면 스킵 (헤더나 합계 행 등)
+    if (serialNumber === undefined || serialNumber === null) continue;
+    const serialNum = Number(serialNumber);
+    if (isNaN(serialNum) || serialNum <= 0) continue;
     
-    // "이자" 같은 특수 행 제외 (숫자가 아닌 연번)
-    if (typeof serialNumber !== "number" && isNaN(Number(serialNumber))) continue;
+    // 집행완료일
+    const executionDateIdx = colIndex["집행완료일"] ?? 2;
+    const executionDate = row[executionDateIdx];
+    if (!executionDate) continue;
+    
+    // 집행목적
+    const purposeIdx = colIndex["집행목적"] ?? 3;
+    const purpose = row[purposeIdx];
+    if (!purpose) continue;
     
     const expense: ParsedExpense = {
-      serialNumber: Number(serialNumber) || 0,
-      executionDate: parseExcelDate(executionDate as string | number),
-      purpose: String(purpose || ""),
-      evidenceType: String(row[colIndex["증빙유형"]] || ""),
-      item: String(row[colIndex["품목"]] || ""),
-      vendorName: row[colIndex["거래처명"]] ? String(row[colIndex["거래처명"]]) : null,
-      bankName: row[colIndex["입금은행"]] ? String(row[colIndex["입금은행"]]) : null,
-      accountHolder: row[colIndex["예금주명"]] ? String(row[colIndex["예금주명"]]) : null,
-      accountNumber: row[colIndex["입금계좌번호"]] ? String(row[colIndex["입금계좌번호"]]) : null,
-      amount: Number(row[colIndex["집행금액"]]) || 0,
-      subsidyCategory: row[colIndex["보조세목"]] ? String(row[colIndex["보조세목"]]) : null,
-      fundSource: row[colIndex["재원"]] ? String(row[colIndex["재원"]]) : null,
-      supplyPrice: row[colIndex["공급가액"]] ? Number(row[colIndex["공급가액"]]) : null,
-      vat: row[colIndex["부가세"]] ? Number(row[colIndex["부가세"]]) : null,
-      balance: row[colIndex["잔액"]] ? Number(row[colIndex["잔액"]]) : null,
+      serialNumber: serialNum,
+      executionDate: parseExcelDate(executionDate),
+      purpose: safeString(purpose),
+      evidenceType: safeString(row[colIndex["증빙유형"] ?? 4]),
+      item: safeString(row[colIndex["품목"] ?? 5]),
+      vendorName: safeString(row[colIndex["거래처명"] ?? 6]) || null,
+      bankName: safeString(row[colIndex["입금은행"] ?? 7]) || null,
+      accountHolder: safeString(row[colIndex["예금주명"] ?? 8]) || null,
+      accountNumber: safeString(row[colIndex["입금계좌번호"] ?? 9]) || null,
+      amount: safeNumber(row[colIndex["집행금액"] ?? 10]),
+      subsidyCategory: safeString(row[colIndex["보조세목"] ?? 11]) || null,
+      fundSource: safeString(row[colIndex["재원"] ?? 12]) || null,
+      supplyPrice: safeNumber(row[colIndex["공급가액"] ?? 13]) || null,
+      vat: safeNumber(row[colIndex["부가세"] ?? 14]) || null,
+      balance: safeNumber(row[colIndex["잔액"] ?? 15]) || null,
     };
     
     expenses.push(expense);
   }
 
+  console.log("Parsed expenses count:", expenses.length);
+  
   return expenses;
 }
