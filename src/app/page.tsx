@@ -27,20 +27,33 @@ export default function Dashboard() {
     totalAmount: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchExpenses = async () => {
     try {
+      setError(null);
       const response = await fetch("/api/expenses");
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch expenses");
+      }
+      
       const data = await response.json();
-      setExpenses(data);
-
-      // 통계 계산
-      const total = data.length;
-      const totalAmount = data.reduce((sum: number, e: Expense) => sum + e.amount, 0);
-
-      setStats({ total, totalAmount });
-    } catch (error) {
-      console.error("Failed to fetch expenses:", error);
+      
+      if (Array.isArray(data)) {
+        setExpenses(data);
+        const total = data.length;
+        const totalAmount = data.reduce((sum: number, e: Expense) => sum + (e.amount || 0), 0);
+        setStats({ total, totalAmount });
+      } else {
+        setExpenses([]);
+        setStats({ total: 0, totalAmount: 0 });
+      }
+    } catch (err) {
+      console.error("Failed to fetch expenses:", err);
+      setError("데이터를 불러오는 중 오류가 발생했습니다.");
+      setExpenses([]);
+      setStats({ total: 0, totalAmount: 0 });
     } finally {
       setIsLoading(false);
     }
@@ -68,6 +81,13 @@ export default function Dashboard() {
           엑셀 파일을 업로드하여 지출 결의서를 관리하세요
         </p>
       </div>
+
+      {/* 에러 메시지 */}
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
 
       {/* 엑셀 업로드 */}
       <section>
@@ -153,8 +173,15 @@ export default function Dashboard() {
         </section>
       )}
 
+      {/* 로딩 상태 */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-8 h-8 border-2 border-foreground border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+
       {/* 빈 상태 */}
-      {!isLoading && expenses.length === 0 && (
+      {!isLoading && !error && expenses.length === 0 && (
         <div className="text-center py-12 border border-dashed border-border rounded-lg">
           <p className="text-muted-foreground">
             아직 업로드된 데이터가 없습니다

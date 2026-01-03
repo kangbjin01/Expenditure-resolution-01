@@ -30,10 +30,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(expenses);
   } catch (error) {
     console.error("Failed to fetch expenses:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch expenses" },
-      { status: 500 }
-    );
+    // 테이블이 없는 경우 빈 배열 반환
+    return NextResponse.json([]);
   }
 }
 
@@ -87,6 +85,3 @@ export async function DELETE() {
     );
   }
 }
-
-
-

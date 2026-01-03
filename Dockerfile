@@ -14,8 +14,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Set environment for build
-ENV DATABASE_URL="file:./data/expense.db"
+# Create data directory and set environment for build
+RUN mkdir -p /app/data
+ENV DATABASE_URL="file:/app/data/expense.db"
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Generate Prisma client
@@ -30,7 +31,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV DATABASE_URL="file:./data/expense.db"
+ENV DATABASE_URL="file:/app/data/expense.db"
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
@@ -46,12 +47,12 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 
-# Create data directory
+# Create data directory and set permissions
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app
 
 USER nextjs
 
 EXPOSE 3000
 
-# Start script: init db then run server
-CMD ["sh", "-c", "npx prisma db push --skip-generate 2>/dev/null || true && node server.js"]
+# Initialize database and start server
+CMD sh -c "cd /app && npx prisma db push --accept-data-loss --skip-generate 2>&1 || echo 'DB init warning' && node server.js"

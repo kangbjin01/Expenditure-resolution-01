@@ -23,15 +23,31 @@ export default function ExpenseList() {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchExpenses = async () => {
     try {
+      setError(null);
       const response = await fetch("/api/expenses");
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch");
+      }
+      
       const data = await response.json();
-      setExpenses(data);
-      setFilteredExpenses(data);
-    } catch (error) {
-      console.error("Failed to fetch expenses:", error);
+      
+      if (Array.isArray(data)) {
+        setExpenses(data);
+        setFilteredExpenses(data);
+      } else {
+        setExpenses([]);
+        setFilteredExpenses([]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch expenses:", err);
+      setError("데이터를 불러오는 중 오류가 발생했습니다.");
+      setExpenses([]);
+      setFilteredExpenses([]);
     } finally {
       setIsLoading(false);
     }
@@ -48,8 +64,8 @@ export default function ExpenseList() {
       const searchLower = search.toLowerCase();
       filtered = filtered.filter(
         (e) =>
-          e.purpose.toLowerCase().includes(searchLower) ||
-          e.item.toLowerCase().includes(searchLower) ||
+          e.purpose?.toLowerCase().includes(searchLower) ||
+          e.item?.toLowerCase().includes(searchLower) ||
           (e.vendorName && e.vendorName.toLowerCase().includes(searchLower))
       );
     }
@@ -61,11 +77,15 @@ export default function ExpenseList() {
     return new Intl.NumberFormat("ko-KR", {
       style: "currency",
       currency: "KRW",
-    }).format(amount);
+    }).format(amount || 0);
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("ko-KR");
+    try {
+      return new Date(dateString).toLocaleDateString("ko-KR");
+    } catch {
+      return "-";
+    }
   };
 
   const handleSelectAll = (checked: boolean) => {
@@ -112,8 +132,8 @@ export default function ExpenseList() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (error) {
-      console.error("Failed to export:", error);
+    } catch (err) {
+      console.error("Failed to export:", err);
       alert("워드 파일 생성에 실패했습니다.");
     } finally {
       setIsExporting(false);
@@ -139,8 +159,8 @@ export default function ExpenseList() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (error) {
-      console.error("Failed to export:", error);
+    } catch (err) {
+      console.error("Failed to export:", err);
       alert("워드 파일 생성에 실패했습니다.");
     }
   };
@@ -173,6 +193,13 @@ export default function ExpenseList() {
           </p>
         </div>
       </div>
+
+      {/* 에러 메시지 */}
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
 
       {/* 검색 및 액션 버튼 */}
       <div className="flex flex-col gap-4">
@@ -338,7 +365,9 @@ export default function ExpenseList() {
         </div>
       ) : (
         <div className="text-center py-12 border border-dashed border-border rounded-lg">
-          <p className="text-muted-foreground">검색 결과가 없습니다</p>
+          <p className="text-muted-foreground">
+            {error ? "데이터를 불러올 수 없습니다" : "검색 결과가 없습니다"}
+          </p>
         </div>
       )}
     </div>
