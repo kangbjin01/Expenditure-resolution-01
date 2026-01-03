@@ -19,8 +19,9 @@ RUN mkdir -p /app/data
 ENV DATABASE_URL="file:/app/data/expense.db"
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Generate Prisma client
+# Generate Prisma client and create initial database
 RUN npx prisma generate
+RUN npx prisma db push --accept-data-loss
 
 # Build Next.js
 RUN npm run build
@@ -47,13 +48,26 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 
-# Create data directory and set permissions
-RUN mkdir -p /app/data && chown -R nextjs:nodejs /app
+# Copy initial database to a backup location
+COPY --from=builder /app/data/expense.db /app/init-expense.db
+
+# Create data directory
+RUN mkdir -p /app/data
+
+# Create entrypoint script inside Dockerfile to avoid CRLF issues
+RUN printf '#!/bin/sh\n\
+if [ ! -f /app/data/expense.db ]; then\n\
+  echo "Initializing database..."\n\
+  cp /app/init-expense.db /app/data/expense.db\n\
+fi\n\
+exec node server.js\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+# Set permissions
+RUN chown -R nextjs:nodejs /app
 
 USER nextjs
 
 EXPOSE 3000
 
-# Initialize database and start server
-ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["mkdir -p /app/data && npx prisma db push --accept-data-loss --skip-generate && node server.js"]
+# Run entrypoint
+CMD ["/bin/sh", "/app/entrypoint.sh"]
