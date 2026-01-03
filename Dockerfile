@@ -1,5 +1,8 @@
 FROM node:20-alpine AS base
 
+# Install OpenSSL for Prisma
+RUN apk add --no-cache openssl
+
 # Install dependencies only when needed
 FROM base AS deps
 WORKDIR /app
@@ -55,12 +58,7 @@ COPY --from=builder /app/data/expense.db /app/init-expense.db
 RUN mkdir -p /app/data
 
 # Create entrypoint script inside Dockerfile to avoid CRLF issues
-RUN printf '#!/bin/sh\n\
-if [ ! -f /app/data/expense.db ]; then\n\
-  echo "Initializing database..."\n\
-  cp /app/init-expense.db /app/data/expense.db\n\
-fi\n\
-exec node server.js\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN printf '#!/bin/sh\nif [ ! -f /app/data/expense.db ]; then\n  echo "Initializing database..."\n  cp /app/init-expense.db /app/data/expense.db\nfi\nexec node server.js\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set permissions
 RUN chown -R nextjs:nodejs /app
