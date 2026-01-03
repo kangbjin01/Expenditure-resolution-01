@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  expense-report:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      # SQLite 데이터베이스 파일 영속화
+      - expense-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:./data/expense.db
+    restart: unless-stopped
+
+volumes:
+  expense-data:
